@@ -37,8 +37,8 @@ const handleDbError = (error, res) => {
 
 //Registrar usuarios
 app.post('/api/regisesion', async (req, res) => {
-  const { nombre, documento, correo, contrasena, rolId_Rol } = req.body;
-  console.log(nombre, documento, correo, contrasena, rolId_Rol);
+  const { nombre,tipo_documento, documento, correo, contrasena, rolId_Rol } = req.body;
+  console.log(nombre,tipo_documento, documento, correo, contrasena, rolId_Rol);
   if (!nombre || !documento || !correo || !contrasena || !rolId_Rol) {
     return res.status(400).json({
       success: false,
@@ -60,14 +60,14 @@ app.post('/api/regisesion', async (req, res) => {
       });
     }
     await connection.execute(
-      `INSERT INTO usuarios (Nombre, Documento, Correo, Contraseña, rolId_Rol)
-       VALUES (?, ?, ?, ?, ?)`,
-      [nombre, documento, correo, contrasena, rolId_Rol]
+      `INSERT INTO usuarios (Nombre,Tipo_documento, Documento, Correo, Contraseña, rolId_Rol)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [nombre,tipo_documento, documento, correo, contrasena, rolId_Rol]
     );
     res.status(201).json({
       success: true,
       message: 'Usuario registrado exitosamente.',
-      data: { nombre, documento, correo, rolId_Rol }
+      data: { nombre,tipo_documento, documento, correo, rolId_Rol }
     });
   } catch (error) {
     console.error('Error al registrar usuario:', error);
@@ -134,7 +134,7 @@ app.post('/api/inisesion', async (req, res) => {
 
 
 
-// ============= CRUD: EVENTOS =============
+// ============= Eventos =============
 
 // Agregar evento
 app.post('/api/agregar-evento', async (req, res) => {
@@ -226,7 +226,7 @@ app.delete('/api/eliminar-evento/:id', async (req, res) => {
 });
 
 
-// ============= ARTISTAS =============
+// ============= Artistas =============
 
 // Agregar artista
 app.post('/api/agregar-artista', async (req, res) => {
@@ -262,9 +262,69 @@ app.get('/api/todos-artistas', async (req, res) => {
   }
 });
 
-// ============= LOCALIDADES =============
+// Asociar artista a un evento
+app.post('/api/asociar-artista', async (req, res) => {
+  const { eventosId_Eventos, artistasId_Artistas } = req.body;
+  let connection;
+  try {
+    connection = await mysql.createConnection(db);
+    console.log('Asociando artista:', eventosId_Eventos, artistasId_Artistas);
 
-// Agregar localidad
+    // Verificar si ya existe la asociación
+    const [existe] = await connection.execute(
+      `SELECT * FROM entity8 WHERE eventosId_Eventos = ? AND artistasId_Artistas = ?`,
+      [eventosId_Eventos, artistasId_Artistas]
+    );
+
+    if (existe.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Este artista ya está asociado a este evento. No se puede asociar nuevamente.' 
+      });
+    }
+
+    // Si no existe, insertar la asociación
+    await connection.execute(
+      `INSERT INTO entity8 (eventosId_Eventos, artistasId_Artistas) VALUES (?, ?)`,
+      [eventosId_Eventos, artistasId_Artistas]
+    );
+
+    res.json({ success: true, message: 'Artista asociado al evento correctamente' });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al asociar artista' });
+  } finally {
+    if (connection) await connection.end();
+  }
+});
+
+
+// Obtener artistas de un evento
+app.get('/api/artistas-por-evento/:idEvento', async (req, res) => {
+  const { idEvento } = req.params;
+  let connection;
+  try {
+    connection = await mysql.createConnection(db);
+    const [rows] = await connection.execute(
+      `SELECT a.* 
+       FROM artistas a
+       JOIN entity8 ea ON a.Id_Artistas = ea.artistasId_Artistas
+       WHERE ea.eventosId_Eventos = ?`,
+      [idEvento]
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al obtener artistas del evento' });
+  } finally {
+    if (connection) await connection.end();
+  }
+});
+
+// ============= Localidades =============
+
+// Agregar localidad  
 app.post('/api/agregar-localidad', async (req, res) => {
   const { tipo_localidad, valor_localidad, evento_id, cantidad_disponible } = req.body;
   let connection;
@@ -320,50 +380,136 @@ app.get('/api/todas-localidades', async (req, res) => {
   }
 });
 
+//Registrar boletas
 app.post('/api/agregar-boleta', async (req, res) => {
-  const { valor, cantidad, eventosId_Eventos, localidadesId_Localidades } = req.body;
+  const { valor, cantidad,eventosId_Eventos, localidadesId_Localidades } = req.body;
   let connection;
-
   try {
     connection = await mysql.createConnection(db);
-
-    // Validar disponibilidad de la localidad
-    const [loc] = await connection.execute(
-      'SELECT Cantidad_disponible FROM localidades WHERE Id_Localidades = ?',
+    console.log("Datos recibidos:", req.body);
+    const [evento] = await connection.execute(
+      'SELECT * FROM eventos WHERE Id_Eventos = ?',
+      [eventosId_Eventos]
+    );
+    if (evento.length === 0) {
+      return res.status(400).json({ success: false, message: 'El evento no existe' });
+    }
+    const [localidad] = await connection.execute(
+      'SELECT * FROM localidades WHERE Id_Localidades = ?',
       [localidadesId_Localidades]
     );
-
-    if (loc.length === 0) {
-      return res.status(404).json({ success: false, message: 'Localidad no encontrada' });
+    if (localidad.length === 0) {
+      return res.status(400).json({ success: false, message: 'La localidad no existe' });
     }
 
-    const disponible = loc[0].Cantidad_disponible;
-    if (cantidad > disponible) {
-      return res.status(400).json({ success: false, message: `Solo hay ${disponible} boletas disponibles.` });
-    }
-
-    // Registrar boleta
-    const serial = `BOL-${Math.floor(Math.random() * 1000000)}`;
+    // Insertar la boleta
     await connection.execute(
-      `INSERT INTO boletas (Valor, Serial, Cantidad, eventosId_Eventos, localidadesId_Localidades)
-       VALUES (?, ?, ?, ?, ?)`,
-      [valor, serial, cantidad, eventosId_Eventos, localidadesId_Localidades]
+      `INSERT INTO boletas (Valor, Cantidad, eventosId_Eventos, localidadesId_Localidades)
+       VALUES (?, ?, ?, ?)`,
+      [valor, cantidad, eventosId_Eventos, localidadesId_Localidades]
     );
 
-    // Actualizar disponibilidad
-    await connection.execute(
-      'UPDATE localidades SET Cantidad_disponible = Cantidad_disponible - ? WHERE Id_Localidades = ?',
-      [cantidad, localidadesId_Localidades]
-    );
-
-    res.json({ success: true, message: 'Boletas registradas correctamente' });
+    res.status(201).json({ success: true, message: 'Boleta agregada correctamente' });
   } catch (error) {
-    console.error('Error al registrar boleta:', error);
-    res.status(500).json({ success: false, message: 'Error al registrar boleta' });
+    console.error("Error al agregar boleta:", error);
+    res.status(500).json({ success: false, message: 'Error interno del servidor', error: error.message });
+  } finally {
+    if (connection) await connection.end();
+  }
+  //Listar todas las boletas
+app.get('/api/todas-boletas', async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(db);
+    const [boletas] = await connection.execute(`
+      SELECT 
+        b.Id_Boletas,
+        b.Valor,
+        b.Cantidad,
+        e.Nombre AS Evento,
+        l.Tipo_localidad AS Localidad,
+        b.eventosId_Eventos,
+        b.localidadesId_Localidades,
+        b.compraId_Compra
+      FROM boletas b
+      JOIN eventos e ON b.eventosId_Eventos = e.Id_Eventos
+      JOIN localidades l ON b.localidadesId_Localidades = l.Id_Localidades
+    `);
+
+    res.json({ success: true, data: boletas });
+  } catch (error) {
+    console.error('Error al listar boletas:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener boletas', error: error.message });
   } finally {
     if (connection) await connection.end();
   }
 });
 
+
+app.put('/api/editar-boleta/:id', async (req, res) => {
+  const { id } = req.params;
+  let { Valor, Cantidad, eventosId_Eventos, localidadesId_Localidades } = req.body;
+
+  Valor = Number(Valor);
+  Cantidad = Number(Cantidad);
+  eventosId_Eventos = Number(eventosId_Eventos);
+  localidadesId_Localidades = Number(localidadesId_Localidades);
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(db);
+    console.log("Editando boleta ID:", id, req.body);
+
+    const [boleta] = await connection.execute('SELECT * FROM boletas WHERE Id_Boletas = ?', [id]);
+    if (boleta.length === 0) {
+      return res.status(404).json({ success: false, message: 'Boleta no encontrada' });
+    }
+
+    await connection.execute(
+      `UPDATE boletas 
+       SET Valor = ?, Cantidad = ?, eventosId_Eventos = ?, localidadesId_Localidades = ?
+       WHERE Id_Boletas = ?`,
+      [Valor, Cantidad, eventosId_Eventos, localidadesId_Localidades, id]
+    );
+
+    res.json({ success: true, message: 'Boleta actualizada correctamente' });
+  } catch (error) {
+    console.error("Error al editar boleta:", error);
+    res.status(500).json({ success: false, message: 'Error interno del servidor', error: error.message });
+  } finally {
+    if (connection) await connection.end();
+  }
+});
+
+
+// Eliminar boleta
+app.delete('/api/eliminar-boleta/:id', async (req, res) => {
+  const { id } = req.params;
+  let connection;
+  try {
+    connection = await mysql.createConnection(db);
+    await connection.execute('DELETE FROM boletas WHERE Id_Boletas = ?', [id]);
+    res.json({ success: true, message: 'Boleta eliminada correctamente' });
+  } catch (error) {
+    console.error('Error al eliminar boleta:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar boleta' });
+  } finally {
+    if (connection) await connection.end();
+  }
+});
+});
+
+
+//cerrar sesion
+app.post('/api/cerrarsesi', (req, res) => {
+  req.session.destroy(err => {
+    if (err) {
+      console.error('Error al destruir sesión:', err);
+      return res.status(500).json({ success: false, message: 'Error al cerrar la sesión' });
+    }
+    res.clearCookie('connect.sid'); 
+    res.json({ success: true, message: 'Sesión cerrada' });
+  });
+});
 
 app.listen(5000, () => console.log('Servidor corriendo en http://localhost:5000'));

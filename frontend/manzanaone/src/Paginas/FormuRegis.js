@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 const Formuregis = () => {
   const [nombre, setNombre] = useState('');
+  const [tipo_documento, setTipoDocumento] = useState('');
   const [documento, setDocumento] = useState('');
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
@@ -11,12 +12,12 @@ const Formuregis = () => {
   const manejarRegistro = async (e) => {
     e.preventDefault();
 
-    if (!nombre || !documento || !correo || !contrasena || !rolId_Rol) {
+    if (!nombre || !tipo_documento || !documento || !correo || !contrasena || !rolId_Rol) {
       setMensaje('Todos los campos son obligatorios.');
       return;
     }
 
-    const datos = { nombre, documento, correo, contrasena, rolId_Rol };
+    const datos = { nombre,tipo_documento, documento, correo, contrasena, rolId_Rol };
 
     try {
       const respuesta = await fetch('http://localhost:5000/api/regisesion', {
@@ -30,6 +31,7 @@ const Formuregis = () => {
       if (resultado.success) {
         setMensaje('Registro exitoso');
         setNombre('');
+        setTipoDocumento('');
         setDocumento('');
         setCorreo('');
         setContrasena('');
@@ -55,6 +57,19 @@ const Formuregis = () => {
               onChange={(e) => setNombre(e.target.value)}
               required
             />
+          </div>
+
+          <div>
+            <label>Tipo de documento:</label>
+            <select
+              value={tipo_documento}
+              onChange={(e) => setTipoDocumento(e.target.value)}
+              required
+            >
+              <option value="">Seleccione su tipo</option>
+              <option value="1">CC</option>
+              <option value="2">TI</option>
+            </select>
           </div>
 
           <div>
